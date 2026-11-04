@@ -1,5 +1,5 @@
-// Runs Essentia (tempo + chords) off the main thread so the page stays responsive.
-import { detectTempo } from './rhythm.js';
+// Runs Essentia (tempo, onsets, chords) off the main thread so the page stays responsive.
+import { detectTempo, detectOnsets } from './rhythm.js';
 import { detectChords, loadEssentia } from './chords.js';
 
 self.onmessage = async ({ data }) => {
@@ -9,6 +9,8 @@ self.onmessage = async ({ data }) => {
     await loadEssentia();
     const tempo = await detectTempo(data.rhythmSignal);
     post({ type: 'tempo', tempo });
+    const onsets = await detectOnsets(data.rhythmSignal);
+    post({ type: 'onsets', onsets });
     const chords = await detectChords(data.chordSignal, data.chordRate, (p) =>
       post({ type: 'progress', step: 'chords', p }),
     );

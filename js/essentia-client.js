@@ -1,11 +1,11 @@
-// Run tempo + chord detection in a module worker; fall back to the main thread.
-import { detectTempo } from './rhythm.js';
+// Run tempo, onset and chord detection in a module worker; fall back to the main thread.
+import { detectTempo, detectOnsets } from './rhythm.js';
 import { detectChords } from './chords.js';
 
 /**
  * @param {{rhythmSignal:Float32Array, chordSignal:Float32Array, chordRate:number}} input
- * @param {{onProgress:(step:string,p:number)=>void, onTempo:(t)=>void}} cb
- * @returns {Promise<{tempo, chords}>}
+ * @param {{onProgress:(step:string,p:number)=>void, onTempo:(t)=>void, onOnsets:(o)=>void}} cb
+ * @returns {Promise<{tempo, onsets, chords}>}
  */
 export function analyzeWithEssentia(input, cb) {
   return new Promise((resolve, reject) => {
@@ -16,6 +16,7 @@ export function analyzeWithEssentia(input, cb) {
       return mainThread(input, cb).then(resolve, reject);
     }
     let tempo = null;
+    let onsets = [];
     let started = false;
     worker.onmessage = ({ data }) => {
       started = true;
@@ -23,9 +24,12 @@ export function analyzeWithEssentia(input, cb) {
       else if (data.type === 'tempo') {
         tempo = data.tempo;
         cb.onTempo(tempo);
+      } else if (data.type === 'onsets') {
+        onsets = data.onsets;
+        cb.onOnsets(onsets);
       } else if (data.type === 'chords') {
         worker.terminate();
-        resolve({ tempo, chords: data.chords });
+        resolve({ tempo, onsets, chords: data.chords });
       } else if (data.type === 'error') {
         worker.terminate();
         reject(new Error(data.message));
@@ -47,6 +51,8 @@ async function mainThread(input, cb) {
   await new Promise((r) => setTimeout(r, 30));
   const tempo = await detectTempo(input.rhythmSignal);
   cb.onTempo(tempo);
+  const onsets = await detectOnsets(input.rhythmSignal);
+  cb.onOnsets(onsets);
   const chords = await detectChords(input.chordSignal, input.chordRate, (p) => cb.onProgress('chords', p));
-  return { tempo, chords };
+  return { tempo, onsets, chords };
 }

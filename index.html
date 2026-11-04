@@ -17,6 +17,7 @@
   </header>
 
   <main>
+    <div class="top-panels">
     <!-- Tempo panel -->
     <section class="card tempo-panel" aria-labelledby="tempo-title">
       <h2 id="tempo-title" class="sr-only">Tempo</h2>
@@ -45,6 +46,34 @@
       </div>
       <button id="bpm-reset" class="link-btn" type="button" hidden>Reset to detected BPM</button>
     </section>
+
+    <!-- Strumming panel -->
+    <section class="card strum-panel" aria-labelledby="strum-title">
+      <div class="strum-head">
+        <h2 id="strum-title">Strumming</h2>
+        <span id="strum-badge" class="badge">Preset</span>
+        <span id="strum-conf" class="tiny"></span>
+      </div>
+      <div id="strum-sections" class="chips" role="tablist" aria-label="Song sections"></div>
+      <div id="strum-grid" class="strum-grid" aria-label="Strumming pattern"></div>
+      <p class="tiny strum-help">Tap an arrow to cycle ↓ → ↑ → rest. Tap above it to toggle an accent (&gt;).</p>
+      <label class="field">
+        <span class="tiny">Presets</span>
+        <select id="strum-preset"></select>
+      </label>
+      <div class="practice">
+        <button id="strum-play" class="btn" type="button" aria-pressed="false">▶ Play pattern</button>
+        <label class="speed">
+          <span class="tiny">Speed <b id="speed-val">100%</b> · <span id="speed-bpm">—</span></span>
+          <input id="strum-speed" type="range" min="50" max="100" step="5" value="100" />
+        </label>
+      </div>
+      <div class="strum-foot">
+        <button id="strum-reset" class="link-btn" type="button" hidden>Reset to detected</button>
+        <span id="strum-saved" class="tiny" aria-live="polite"></span>
+      </div>
+    </section>
+    </div>
 
     <!-- YouTube -->
     <section class="card" aria-labelledby="yt-title">

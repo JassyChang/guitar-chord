@@ -2,10 +2,17 @@ import { parseYouTubeId, parseStartSeconds } from './youtube.js';
 import { decodeBlob, toMono, Recorder } from './audio.js';
 import { formatTime, fingerNotes } from './tab.js';
 import { chordDiagramSVG, chordShapeText } from './chords.js';
-import { buildBeatGrid, buildMeasures, layoutSheet, sheetToText, snapChordsToBeats } from './sheet.js';
+import {
+  buildBeatGrid, buildMeasures, layoutSheet, sheetToText, snapChordsToBeats, estimateDownbeatShift,
+} from './sheet.js';
 import { alignLyrics, cleanWhisperWords, linesFromWords, editLine, allWords } from './lyrics-align.js';
 import { confidenceLabel } from './rhythm.js';
 import { Metronome } from './metronome.js';
+import {
+  PRESETS, presetPattern, patternFromString, detectStrumming, strumMarks, cycleSlot, toggleAccent,
+  slotLabels, patternToText, ARROW, eighthSub,
+} from './strum.js';
+import { StrumPlayer } from './strum-player.js';
 
 const $ = (id) => document.getElementById(id);
 const CHORD_RATE = 22050; // Basic Pitch needs 22050 Hz; chord detection shares it
@@ -19,9 +26,14 @@ const state = {
   busy: false,
   analysis: null, // { duration, chords, tabEvents, noteCount, whisperWords }
   lyrics: [], // [{start,end,text,words}]
-  tempo: { detected: null, manualBpm: null, beatsPerBar: 4, shift: 0 },
+  tempo: { detected: null, manualBpm: null, beatsPerBar: 4, shift: 0, autoShift: true },
   view: { showTab: true, perRow: 4, sub: 2, follow: true },
   rows: [],
+  strum: {
+    detected: null, // detectStrumming() result for the current beat grid
+    selected: 'main', // 'main' or section index
+    custom: { main: null, sections: {} }, // user edits / presets: { pattern, source }
+  },
   chords: [], // beat-snapped chords shown everywhere
   activeRow: -1,
 };
@@ -53,7 +65,9 @@ function renderTempoPanel() {
   $('bpm-reset').hidden = !(t.manualBpm != null && t.detected);
   metronome.bpm = effectiveBpm();
   metronome.beatsPerBar = t.beatsPerBar;
+  strumPlayer.bpm = effectiveBpm();
   renderBeatDots();
+  renderStrumPanel();
 }
 
 function renderBeatDots() {
@@ -218,6 +232,7 @@ recBtn.addEventListener('click', async () => {
 const STEP_DEFS = [
   { id: 'decode', name: 'Decode audio', weight: 4 },
   { id: 'tempo', name: 'Tempo & beats (Essentia)', weight: 14 },
+  { id: 'strum', name: 'Strumming (Essentia onsets)', weight: 6 },
   { id: 'chords', name: 'Chords (Essentia)', weight: 14 },
   { id: 'notes', name: 'Notes → tab (Basic Pitch)', weight: 40 },
   { id: 'lyrics', name: 'Lyrics (Whisper)', weight: 26 },
@@ -319,6 +334,11 @@ async function analyze() {
               renderTempoPanel();
               setStep('tempo', tempo.beats.length ? 'done' : 'error', 1,
                 tempo.beats.length ? `${Math.round(tempo.bpm)} BPM` : 'no beat found');
+              steps.strum.indeterminate = true;
+              setStep('strum', 'running', 0);
+            },
+            onOnsets: (onsets) => {
+              setStep('strum', 'done', 1, `${onsets.length} hits`);
               setStep('chords', 'running', 0);
             },
           },
@@ -326,12 +346,12 @@ async function analyze() {
       )
       .then((r) => {
         setStep('chords', 'done', 1, `${new Set(r.chords.map((c) => c.chord)).size} chords`);
-        return r.chords;
+        return { chords: r.chords, onsets: r.onsets || [] };
       })
       .catch((err) => {
         console.error(err);
-        for (const id of ['tempo', 'chords']) if (steps[id].status !== 'done') setStep(id, 'error', 1, 'failed');
-        return [];
+        for (const id of ['tempo', 'strum', 'chords']) if (steps[id].status !== 'done') setStep(id, 'error', 1, 'failed');
+        return { chords: [], onsets: [] };
       });
 
     const notesJob = (async () => {
@@ -347,9 +367,11 @@ async function analyze() {
       return { notes: [], tabEvents: [] };
     });
 
-    const [chords, { notes, tabEvents }] = await Promise.all([essentiaJob, notesJob]);
+    const [{ chords, onsets }, { notes, tabEvents }] = await Promise.all([essentiaJob, notesJob]);
 
-    state.analysis = { duration, chords, tabEvents, noteCount: notes.length, whisperWords: [] };
+    state.analysis = { duration, chords, onsets, tabEvents, noteCount: notes.length, whisperWords: [] };
+    state.strum.selected = 'main';
+    loadSavedStrum();
     const span = songSpan();
 
     // Lyrics last: biggest download, most memory
@@ -376,6 +398,7 @@ async function analyze() {
     setStep('sheet', 'running', 0);
     buildLyricLines(span);
     state.tempo.shift = 0;
+    state.tempo.autoShift = true;
     renderResults();
     setStep('sheet', 'done', 1);
     $('lyrics-apply').disabled = false;
@@ -451,8 +474,17 @@ function renderSheet() {
   const t = state.tempo;
   const useDetected = t.manualBpm == null && !!t.detected;
   const grid = buildBeatGrid({ beats: t.detected?.beats || [], duration: a.duration, bpm: effectiveBpm(), useDetected });
-  const measures = buildMeasures(grid, t.beatsPerBar, t.shift);
   const chords = snapChordsToBeats(a.chords, grid, 2);
+  if (t.autoShift) t.shift = estimateDownbeatShift(grid, chords, a.onsets || [], t.beatsPerBar);
+  const measures = buildMeasures(grid, t.beatsPerBar, t.shift);
+  state.strum.detected = a.onsets?.length
+    ? detectStrumming({
+      onsets: a.onsets, grid, measures, beatsPerBar: t.beatsPerBar, tempoConfidence: t.detected?.confidence || 0,
+    })
+    : null;
+  if (state.strum.selected !== 'main' && !state.strum.detected?.sections[state.strum.selected]) state.strum.selected = 'main';
+  renderStrumPanel();
+  const strums = strumMarks(measures, grid, (mi) => patternForTime(measures[mi].start));
   const chordsChanged = JSON.stringify(chords) !== JSON.stringify(state.chords);
   state.chords = chords;
   if (chordsChanged) renderChords();
@@ -465,6 +497,7 @@ function renderSheet() {
     measuresPerRow: state.view.perRow,
     subdivision: state.view.sub,
     showTab: state.view.showTab,
+    strums,
   });
 
   const sheet = $('sheet');
@@ -618,10 +651,12 @@ $('grid-res').addEventListener('change', (e) => {
   renderSheet();
 });
 $('shift-left').addEventListener('click', () => {
+  state.tempo.autoShift = false;
   state.tempo.shift -= 1;
   renderSheet();
 });
 $('shift-right').addEventListener('click', () => {
+  state.tempo.autoShift = false;
   state.tempo.shift += 1;
   renderSheet();
 });
@@ -655,8 +690,232 @@ $('copy-sheet').addEventListener('click', () => {
     state.name,
     `Tempo: ${Math.round(effectiveBpm())} BPM   Time: ${$('timesig').selectedOptions[0].text}   Tuning: EADGBE`,
     used ? `Chords: ${used}` : '',
+    strumText(),
   ].filter(Boolean).join('\n');
   copyText(`${head}\n\n${sheetToText(state.rows)}\n`);
 });
 
-renderTempoPanel();
+/* ================= Strumming ================= */
+const strumPlayer = new StrumPlayer({ onSlot: (i) => highlightSlot(i) });
+
+function defaultPattern(beats) {
+  const preset = { 4: 'folk', 3: 'waltz', 6: 'six8' }[beats];
+  if (preset) return presetPattern(PRESETS.find((p) => p.id === preset));
+  return patternFromString('D.DU'.repeat(Math.ceil(beats / 2)).slice(0, beats * 2), beats, 2);
+}
+
+/** All patterns: main + detected sections, with user edits applied. */
+function strumPatterns() {
+  const bpb = state.tempo.beatsPerBar;
+  const d = state.strum.detected;
+  const c = state.strum.custom;
+  const ok = (x) => x && x.pattern.beats === bpb;
+  const list = [];
+  const conf = d ? `${Math.round(d.confidence * 100)}%` : '';
+  if (ok(c.main)) list.push({ id: 'main', name: 'Main', pattern: c.main.pattern, source: c.main.source });
+  else if (d) list.push({ id: 'main', name: 'Main', pattern: d.main, source: d.label, conf });
+  else list.push({ id: 'main', name: 'Main', pattern: defaultPattern(bpb), source: 'Preset' });
+  (d?.sections || []).forEach((sec, i) => {
+    const name = `${formatTime(sec.start)}–${formatTime(sec.end)}`;
+    const cs = c.sections[i];
+    if (ok(cs)) list.push({ id: i, name, range: sec, pattern: cs.pattern, source: cs.source });
+    else list.push({ id: i, name, range: sec, pattern: sec.pattern, source: d.label, conf });
+  });
+  return list;
+}
+
+function selectedEntry() {
+  const list = strumPatterns();
+  return list.find((e) => e.id === state.strum.selected) || list[0];
+}
+
+function patternForTime(t) {
+  const list = strumPatterns();
+  const sec = list.find((e) => e.range && t >= e.range.start - 1e-6 && t < e.range.end - 1e-6);
+  return (sec || list[0]).pattern;
+}
+
+function renderStrumPanel() {
+  const entry = selectedEntry();
+  const list = strumPatterns();
+  const d = state.strum.detected;
+
+  const badge = $('strum-badge');
+  const src = entry.source;
+  badge.textContent = src;
+  badge.className = `badge ${src === 'Detected' ? 'detected' : src === 'Suggested' ? 'suggested' : src === 'Preset' ? '' : 'edited'}`;
+  $('strum-conf').textContent = entry.conf
+    ? `confidence ${entry.conf}${d && d.sub > eighthSub(state.tempo.beatsPerBar) ? ' · 16th notes' : ''}`
+    : state.analysis && !d ? 'not enough clear strums found' : '';
+
+  // Section chips (only when the song has more than one pattern)
+  const chips = $('strum-sections');
+  chips.innerHTML = '';
+  if (list.length > 1) {
+    for (const e of list) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', String(e.id === entry.id));
+      b.textContent = e.id === 'main' ? 'Main pattern' : `Changes ${e.name}`;
+      b.addEventListener('click', () => {
+        state.strum.selected = e.id;
+        renderStrumPanel();
+        if (e.range) seek(e.range.start);
+      });
+      chips.appendChild(b);
+    }
+  }
+
+  // Grid: counts / accent toggles / arrows
+  const p = entry.pattern;
+  const grid = $('strum-grid');
+  grid.innerHTML = '';
+  grid.classList.toggle('dense', p.slots.length > 8);
+  grid.style.gridTemplateColumns = `repeat(${p.slots.length}, minmax(0, 1fr))`;
+  const labels = slotLabels(p.beats, p.sub);
+  p.slots.forEach((slot, i) => {
+    const cnt = document.createElement('div');
+    cnt.className = `cnt${i % p.sub === 0 ? ' beat' : ''}`;
+    cnt.textContent = labels[i];
+    const acc = document.createElement('button');
+    acc.type = 'button';
+    acc.className = `acc${slot.accent ? ' on' : ''}`;
+    acc.textContent = '>';
+    acc.setAttribute('aria-label', `Accent on ${labels[i] || '&'} (${slot.accent ? 'on' : 'off'})`);
+    acc.addEventListener('click', () => editSelected(toggleAccent(p, i)));
+    const arr = document.createElement('button');
+    arr.type = 'button';
+    arr.className = `arr ${slot.dir || 'rest'}${i % p.sub ? ' offbeat' : ''}`;
+    arr.dataset.slot = String(i);
+    arr.textContent = slot.dir ? ARROW[slot.dir] : '·';
+    arr.setAttribute('aria-label', `Count ${labels[i] || '&'}: ${slot.dir === 'D' ? 'down' : slot.dir === 'U' ? 'up' : 'rest'}`);
+    arr.addEventListener('click', () => editSelected(cycleSlot(p, i)));
+    grid.append(cnt, acc, arr);
+  });
+
+  const custom = entry.id === 'main' ? state.strum.custom.main : state.strum.custom.sections[entry.id];
+  $('strum-reset').hidden = !(custom && d);
+  const speed = +$('strum-speed').value;
+  $('speed-val').textContent = `${speed}%`;
+  $('speed-bpm').textContent = `${Math.round((effectiveBpm() * speed) / 100)} BPM`;
+
+  if (strumPlayer.running) {
+    if (strumPlayer.pattern?.slots.length !== p.slots.length) strumPlayer.slot = 0;
+    strumPlayer.pattern = p;
+  }
+}
+
+function highlightSlot(i) {
+  $('strum-grid').querySelectorAll('.arr').forEach((b) => b.classList.toggle('now', +b.dataset.slot === i));
+}
+
+function editSelected(pattern, source = 'Edited') {
+  const id = selectedEntry().id;
+  const entry = { pattern, source };
+  if (id === 'main') state.strum.custom.main = entry;
+  else state.strum.custom.sections[id] = entry;
+  saveStrum();
+  renderStrumPanel();
+  scheduleSheetRender();
+}
+
+// Presets
+const presetSel = $('strum-preset');
+presetSel.innerHTML = '<option value="">Choose a preset…</option>' +
+  PRESETS.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
+presetSel.addEventListener('change', () => {
+  const preset = PRESETS.find((p) => p.id === presetSel.value);
+  if (!preset) return;
+  if (preset.beats !== state.tempo.beatsPerBar) {
+    // e.g. 6/8 ballad: switch the time signature to match
+    state.tempo.beatsPerBar = preset.beats;
+    state.tempo.shift = 0;
+    $('timesig').value = String(preset.beats);
+    state.strum.selected = 'main';
+    renderTempoPanel();
+  }
+  editSelected(presetPattern(preset), 'Preset');
+  presetSel.value = '';
+});
+
+$('strum-reset').addEventListener('click', () => {
+  const id = selectedEntry().id;
+  if (id === 'main') state.strum.custom.main = null;
+  else delete state.strum.custom.sections[id];
+  saveStrum();
+  renderStrumPanel();
+  scheduleSheetRender();
+});
+
+// Practice
+$('strum-play').addEventListener('click', () => {
+  const btn = $('strum-play');
+  if (strumPlayer.running) strumPlayer.stop();
+  else {
+    strumPlayer.bpm = effectiveBpm();
+    strumPlayer.speed = +$('strum-speed').value / 100;
+    strumPlayer.start(selectedEntry().pattern);
+  }
+  btn.setAttribute('aria-pressed', String(strumPlayer.running));
+  btn.textContent = strumPlayer.running ? '■ Stop' : '▶ Play pattern';
+});
+$('strum-speed').addEventListener('input', (e) => {
+  strumPlayer.speed = +e.target.value / 100;
+  renderStrumPanel();
+});
+
+// Save edits with the song (this browser only)
+function songKey() {
+  return state.blob ? `gss:strum:${state.name}|${state.blob.size}` : null;
+}
+
+function saveStrum() {
+  const key = songKey();
+  const msg = $('strum-saved');
+  if (!key) {
+    msg.textContent = 'Load a song to save edits with it.';
+    return;
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(state.strum.custom));
+    msg.textContent = 'Saved with this song ✓';
+  } catch {
+    msg.textContent = "Couldn't save (storage blocked).";
+  }
+}
+
+function loadSavedStrum() {
+  state.strum.custom = { main: null, sections: {} };
+  $('strum-saved').textContent = '';
+  const key = songKey();
+  if (!key) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || 'null');
+    if (saved) {
+      state.strum.custom = { main: saved.main || null, sections: saved.sections || {} };
+      // A saved pattern implies its time signature (e.g. a 6/8 preset)
+      const beats = saved.main?.pattern?.beats;
+      if (beats && beats !== state.tempo.beatsPerBar && $('timesig').querySelector(`option[value="${beats}"]`)) {
+        state.tempo.beatsPerBar = beats;
+        $('timesig').value = String(beats);
+      }
+      $('strum-saved').textContent = 'Loaded your saved pattern for this song.';
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function strumText() {
+  const list = strumPatterns();
+  const out = [];
+  for (const e of list) {
+    const title = e.id === 'main' ? `Strumming (${e.source}${e.conf ? ` ${e.conf}` : ''}):` : `Strumming from ${e.name}:`;
+    out.push(`${title}\n${patternToText(e.pattern, '  ')}`);
+  }
+  return out.join('\n');
+}
+
+renderTempoPanel(); // also renders the strumming panel

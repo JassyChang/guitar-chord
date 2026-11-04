@@ -87,6 +87,43 @@ export function snapChordsToBeats(chords, grid, minBeats = 2) {
 }
 
 /**
+ * Guess which beat is "1": chord changes usually land on the downbeat, and the
+ * downbeat strum is often the loudest. Returns the shift for buildMeasures().
+ */
+export function estimateDownbeatShift(grid, chords, onsets, beatsPerBar) {
+  const bpb = beatsPerBar;
+  if (bpb < 2 || grid.length < bpb * 2) return 0;
+  const beatOf = (t) => {
+    let best = 0;
+    for (let i = 1; i < grid.length; i++) if (Math.abs(grid[i] - t) < Math.abs(grid[best] - t)) best = i;
+    return best;
+  };
+  const changes = new Array(bpb).fill(0);
+  chords.forEach((c, i) => i > 0 && changes[beatOf(c.start) % bpb]++);
+  const strength = new Array(bpb).fill(0);
+  const count = new Array(bpb).fill(0);
+  for (let i = 0; i < grid.length - 1; i++) {
+    let s = 0;
+    for (const o of onsets) if (Math.abs(o.time - grid[i]) < 0.07) s = Math.max(s, o.strength);
+    strength[i % bpb] += s;
+    count[i % bpb]++;
+  }
+  const meanS = strength.map((s, i) => s / Math.max(1, count[i]));
+  const maxS = Math.max(...meanS, 1e-9);
+  const totalC = changes.reduce((a, b) => a + b, 0);
+  let best = 0;
+  let bestScore = -1;
+  for (let ph = 0; ph < bpb; ph++) {
+    const score = (totalC ? (changes[ph] / totalC) * 0.6 : 0) + (meanS[ph] / maxS) * 0.4;
+    if (score > bestScore + 1e-9) {
+      bestScore = score;
+      best = ph;
+    }
+  }
+  return best;
+}
+
+/**
  * Group beats into measures. `shift` moves the first downbeat later by N beats
  * (the beats before it become a pickup measure).
  * @returns {{start:number,end:number,beats:number[]}[]} beats = indices into grid
@@ -133,9 +170,10 @@ const padTo = (s, w, ch = ' ') => s + ch.repeat(Math.max(0, w - strWidth(s)));
  * @param {number} o.measuresPerRow
  * @param {number} o.subdivision slots per beat (2 = eighths, 4 = sixteenths)
  * @param {boolean} o.showTab
+ * @param {{time:number,text:string}[]} [o.strums] strum arrows (only where the pattern changes)
  */
 export function layoutSheet(o) {
-  const { grid, measures, tabEvents = [], words = [] } = o;
+  const { grid, measures, tabEvents = [], words = [], strums = [] } = o;
   let chords = o.chords || [];
   const sub = Math.max(1, o.subdivision || 2);
   const perRow = Math.max(1, o.measuresPerRow || 4);
@@ -148,7 +186,7 @@ export function layoutSheet(o) {
       const t0 = grid[b];
       const t1 = grid[b + 1];
       for (let j = 0; j < sub; j++) {
-        slots.push({ time: t0 + ((t1 - t0) * j) / sub, measure: mi, frets: null, chord: '', lyric: '' });
+        slots.push({ time: t0 + ((t1 - t0) * j) / sub, measure: mi, frets: null, chord: '', lyric: '', strum: '' });
       }
     }
   });
@@ -174,6 +212,10 @@ export function layoutSheet(o) {
   }
   chords = [...chords].sort((a, b) => a.start - b.start);
   for (const c of chords) nearest(c.start).chord = c.chord;
+  for (const st of strums) {
+    const slot = nearest(st.time);
+    if (!slot.strum) slot.strum = st.text;
+  }
   for (const w of words) {
     const text = (w.text || '').trim();
     if (!text) continue;
@@ -203,6 +245,7 @@ export function layoutSheet(o) {
     }
     // Place every slot at a column. Text on the chord/lyric lines may run into the
     // following empty slots; a slot only moves right when its own text would collide.
+    const lineStrum = [];
     const lineChord = [];
     const lineLyric = [];
     const tabLines = Array.from({ length: 6 }, () => []);
@@ -216,6 +259,7 @@ export function layoutSheet(o) {
     };
     let nextMin = 0;
     let chordCur = 0;
+    let strumCur = 0;
     let lyricCur = 0;
     let prevMeasure = -1;
     for (const s of rowSlots) {
@@ -226,9 +270,13 @@ export function layoutSheet(o) {
           nextMin += 1;
         }
       }
-      const has = s.frets || s.chord || s.lyric;
+      const has = s.frets || s.chord || s.lyric || s.strum;
       if (!showTab && !has) continue;
-      const pos = Math.max(nextMin, s.chord ? chordCur : 0, s.lyric ? lyricCur : 0);
+      const pos = Math.max(nextMin, s.chord ? chordCur : 0, s.lyric ? lyricCur : 0, s.strum ? strumCur : 0);
+      if (s.strum) {
+        put(lineStrum, pos, s.strum);
+        strumCur = pos + strWidth(s.strum) + 1;
+      }
       if (s.chord) {
         put(lineChord, pos, s.chord);
         chordCur = pos + strWidth(s.chord) + 1;
@@ -248,20 +296,25 @@ export function layoutSheet(o) {
     };
     let chordLine;
     let lyricLine;
+    let strumLine;
     const tab = [];
     if (showTab) {
       const endCol = nextMin;
       for (const b of bars) for (const t of tabLines) t[b] = '|';
       for (let k = 0; k < 6; k++) tab[k] = `${STRING_NAMES[k]}${toStr(tabLines[k], '-', endCol)}|`;
+      strumLine = ` ${toStr(lineStrum, ' ', lineStrum.length)}`;
       chordLine = ` ${toStr(lineChord, ' ', lineChord.length)}`;
       lyricLine = ` ${toStr(lineLyric, ' ', lineLyric.length)}`;
     } else {
+      strumLine = toStr(lineStrum, ' ', lineStrum.length);
       chordLine = toStr(lineChord, ' ', lineChord.length);
       lyricLine = toStr(lineLyric, ' ', lineLyric.length);
     }
     const lines = [];
     const chordTrim = chordLine.trimEnd();
     const lyricTrim = lyricLine.trimEnd();
+    const strumTrim = strumLine.trimEnd();
+    if (strumTrim) lines.push({ kind: 'strum', text: strumTrim });
     if (chordTrim) lines.push({ kind: 'chord', text: chordTrim });
     if (showTab) for (let k = 5; k >= 0; k--) lines.push({ kind: 'tab', text: tab[k] });
     if (lyricTrim) lines.push({ kind: 'lyric', text: lyricTrim });
