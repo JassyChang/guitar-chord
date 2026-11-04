@@ -1,0 +1,14 @@
+{
+  "name": "guitar-chord",
+  "private": true,
+  "description": "開發用：重新產生 vendor/ 內的第三方函式庫。網站本身不需要建置。",
+  "scripts": {
+    "build:vendor": "sh tools/build-vendor.sh",
+    "serve": "python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "@spotify/basic-pitch": "1.0.1",
+    "esbuild": "^0.25.0",
+    "essentia.js": "0.1.3"
+  }
+}
