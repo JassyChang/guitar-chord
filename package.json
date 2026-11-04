@@ -1,7 +1,8 @@
 {
   "name": "guitar-chord",
   "private": true,
-  "description": "開發用：重新產生 vendor/ 內的第三方函式庫。網站本身不需要建置。",
+  "type": "module",
+  "description": "Dev only: regenerates vendor/. The site itself needs no build step.",
   "scripts": {
     "build:vendor": "sh tools/build-vendor.sh",
     "serve": "python3 -m http.server 8000"

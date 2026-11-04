@@ -1,4 +1,4 @@
-// 使用 @spotify/basic-pitch（TensorFlow.js）將音訊轉成音符。
+// Audio -> notes with @spotify/basic-pitch (TensorFlow.js).
 
 const MODEL_URL = new URL('../vendor/basic-pitch-model/model.json', import.meta.url).href;
 export const BASIC_PITCH_SAMPLE_RATE = 22050;
@@ -12,7 +12,7 @@ async function loadLib() {
       try {
         await lib.tf.setBackend('webgl');
       } catch {
-        /* 無 WebGL 時退回 CPU */
+        /* no WebGL: fall back to CPU */
       }
       await lib.tf.ready();
       if (lib.tf.getBackend() !== 'webgl') await lib.tf.setBackend('cpu');
@@ -25,7 +25,7 @@ async function loadLib() {
   return libPromise;
 }
 
-// 靈敏度預設：onset 門檻、frame 門檻、最短音長（frame 數）
+// Sensitivity presets: onset threshold, frame threshold, min note length (frames)
 const PRESETS = {
   low: { onset: 0.6, frame: 0.4, minLen: 11 },
   medium: { onset: 0.5, frame: 0.3, minLen: 8 },
@@ -33,7 +33,7 @@ const PRESETS = {
 };
 
 /**
- * @param {Float32Array} signal 22050 Hz 單聲道
+ * @param {Float32Array} signal 22050 Hz mono
  * @param {'low'|'medium'|'high'} sensitivity
  * @param {(p:number)=>void} onProgress
  */
@@ -53,7 +53,7 @@ export async function transcribe(signal, sensitivity = 'medium', onProgress = ()
     (p) => onProgress(p),
   );
   const p = PRESETS[sensitivity] || PRESETS.medium;
-  // 吉他音域約 E2(82Hz) ~ 1400Hz
+  // Guitar range: roughly E2 (82 Hz) to 1400 Hz
   const notes = lib.noteFramesToTime(
     lib.addPitchBendsToNoteEvents(
       contours,

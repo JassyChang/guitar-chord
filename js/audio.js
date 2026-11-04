@@ -1,4 +1,4 @@
-// 音訊解碼、重新取樣與麥克風錄音。
+// Audio decoding, resampling and microphone recording.
 
 let sharedCtx = null;
 function audioContext() {
@@ -7,18 +7,18 @@ function audioContext() {
   return sharedCtx;
 }
 
-/** 將 Blob/File 解碼成 AudioBuffer。 */
+/** Decode a Blob/File into an AudioBuffer. */
 export async function decodeBlob(blob) {
   const buf = await blob.arrayBuffer();
   const ctx = audioContext();
   return await new Promise((resolve, reject) => {
-    // 舊版 Safari 只支援 callback 形式
+    // Older Safari only supports the callback form
     const p = ctx.decodeAudioData(buf, resolve, reject);
     if (p && p.then) p.then(resolve, reject);
   });
 }
 
-/** 轉成指定取樣率的單聲道 Float32Array。 */
+/** Mono Float32Array at the target sample rate. */
 export async function toMono(audioBuffer, targetRate) {
   const length = Math.ceil(audioBuffer.duration * targetRate);
   const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
@@ -37,7 +37,7 @@ function pickMimeType() {
   return types.find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
 }
 
-/** 簡易錄音器：start() / stop() → Blob，並回報經過秒數。 */
+/** Simple recorder: start() / stop() -> Blob, reports elapsed seconds. */
 export class Recorder {
   constructor({ onTick } = {}) {
     this.onTick = onTick || (() => {});

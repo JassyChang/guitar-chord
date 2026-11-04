@@ -1,11 +1,11 @@
-// 和弦偵測（Essentia.js：HPCP → ChordsDetection）與吉他和弦圖。
+// Chord detection (Essentia.js: HPCP -> ChordsDetection) and guitar chord diagrams.
 
 const NOTE_INDEX = {
   C: 0, 'B#': 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, Fb: 4, F: 5, 'E#': 5,
   'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11, Cb: 11,
 };
 
-// 每個根音的常用按法（低音 E 弦 → 高音 e 弦，-1 = 不彈）
+// Common shape per root (low E -> high e, -1 = muted)
 const SHAPES = {
   maj: [
     [-1, 3, 2, 0, 1, 0], // C
@@ -37,7 +37,7 @@ const SHAPES = {
   ],
 };
 
-/** 解析和弦名稱，例如 "C#m" → { root: 1, quality: 'min' }。無法辨識時回傳 null。 */
+/** Parse "C#m" -> { root: 1, quality: 'min' }; null if unknown. */
 export function parseChord(name) {
   const m = /^([A-G](?:#|b)?)(m)?$/.exec(name || '');
   if (!m || NOTE_INDEX[m[1]] == null) return null;
@@ -49,18 +49,18 @@ export function chordShape(name) {
   return c ? SHAPES[c.quality][c.root] : null;
 }
 
-/** 產生和弦圖 SVG 字串。 */
+/** Chord diagram as an SVG string. */
 export function chordDiagramSVG(name) {
   const frets = chordShape(name);
   const W = 120;
   const H = 150;
   if (!frets) {
-    return `<svg viewBox="0 0 ${W} ${H}" class="chord-svg" role="img" aria-label="${name}"><text x="60" y="80" text-anchor="middle" class="svg-muted">無圖</text></svg>`;
+    return `<svg viewBox="0 0 ${W} ${H}" class="chord-svg" role="img" aria-label="${name}"><text x="60" y="80" text-anchor="middle" class="svg-muted">No diagram</text></svg>`;
   }
   const left = 22;
   const top = 34;
-  const sGap = 15; // 弦距
-  const fGap = 20; // 品距
+  const sGap = 15; // string spacing
+  const fGap = 20; // fret spacing
   const nFrets = 5;
   const fretted = frets.filter((f) => f > 0);
   const maxF = fretted.length ? Math.max(...fretted) : 0;
@@ -68,13 +68,13 @@ export function chordDiagramSVG(name) {
   const base = maxF > nFrets ? minF : 1;
   const right = left + sGap * 5;
   let g = '';
-  // 品格線
+  // frets
   for (let i = 0; i <= nFrets; i++) {
     const y = top + i * fGap;
     const cls = i === 0 && base === 1 ? 'svg-nut' : 'svg-line';
     g += `<line x1="${left}" y1="${y}" x2="${right}" y2="${y}" class="${cls}"/>`;
   }
-  // 弦
+  // strings
   for (let s = 0; s < 6; s++) {
     const x = left + s * sGap;
     g += `<line x1="${x}" y1="${top}" x2="${x}" y2="${top + nFrets * fGap}" class="svg-line"/>`;
@@ -82,7 +82,7 @@ export function chordDiagramSVG(name) {
   if (base > 1) {
     g += `<text x="${right + 6}" y="${top + fGap * 0.5 + 4}" class="svg-small">${base}fr</text>`;
   }
-  // 封閉和弦（Barre）：無空弦，且最低品出現在按弦範圍的兩端
+  // Barre: no open strings and the lowest fret sits on both outer played strings
   const played = frets.map((f, s) => ({ f, s })).filter((p) => p.f >= 0);
   const hasOpen = played.some((p) => p.f === 0);
   if (!hasOpen && played.length >= 4) {
@@ -104,10 +104,10 @@ export function chordDiagramSVG(name) {
       g += `<circle cx="${x}" cy="${y}" r="6" class="svg-dot"/>`;
     }
   });
-  return `<svg viewBox="0 0 ${W} ${H}" class="chord-svg" role="img" aria-label="${name} 和弦圖">${g}<text x="${(left + right) / 2}" y="${H - 6}" text-anchor="middle" class="svg-small">${frets.map((f) => (f < 0 ? 'x' : f)).join(' ')}</text></svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="chord-svg" role="img" aria-label="${name} chord diagram">${g}<text x="${(left + right) / 2}" y="${H - 6}" text-anchor="middle" class="svg-small">${frets.map((f) => (f < 0 ? 'x' : f)).join(' ')}</text></svg>`;
 }
 
-/** 純文字和弦指法，例如 "x32010"。 */
+/** Plain-text shape, e.g. "x32010". */
 export function chordShapeText(name) {
   const f = chordShape(name);
   if (!f) return '';
@@ -116,7 +116,7 @@ export function chordShapeText(name) {
 
 let essentiaPromise = null;
 
-/** 延遲載入 Essentia.js WASM。 */
+/** Lazy-load the Essentia.js WASM build. */
 export function loadEssentia() {
   if (!essentiaPromise) {
     essentiaPromise = (async () => {
@@ -124,10 +124,10 @@ export function loadEssentia() {
         import('../vendor/essentia/essentia-wasm.es.js'),
         import('../vendor/essentia/essentia.js-core.es.js'),
       ]);
-      // 等待 WASM runtime 初始化完成
+      // Wait for the WASM runtime to finish initialising
       const start = Date.now();
       while (typeof EssentiaWASM.EssentiaJS !== 'function') {
-        if (Date.now() - start > 30000) throw new Error('Essentia.js 初始化逾時');
+        if (Date.now() - start > 30000) throw new Error('Essentia.js took too long to initialise');
         await new Promise((r) => setTimeout(r, 50));
       }
       const Essentia = core.default;
@@ -143,8 +143,8 @@ export function loadEssentia() {
 const yieldToUI = () => new Promise((r) => setTimeout(r, 0));
 
 /**
- * 偵測和弦。
- * @param {Float32Array} signal 單聲道音訊
+ * Detect chords.
+ * @param {Float32Array} signal mono audio
  * @param {number} sampleRate
  * @param {(p:number)=>void} onProgress 0..1
  * @returns {Promise<{start:number,end:number,chord:string,strength:number}[]>}
@@ -195,7 +195,7 @@ export async function detectChords(signal, sampleRate, onProgress = () => {}) {
   pcp.delete?.();
   onProgress(0.95);
 
-  // 靜音段落標記為 N（無和弦）
+  // Silent / weak frames become N (no chord)
   const maxRms = Math.max(...rms, 1e-9);
   for (let i = 0; i < labels.length; i++) {
     if ((rms[i] ?? 0) < maxRms * 0.04 || strengths[i] < 0.2) labels[i] = 'N';
@@ -213,7 +213,7 @@ export async function detectChords(signal, sampleRate, onProgress = () => {}) {
       segments.push({ start: t, end: t + frameDur, chord: labels[i], _s: [strengths[i]] });
     }
   }
-  // 過短的段落併入前一段，避免時間軸閃爍
+  // Merge very short segments into the previous one
   const minLen = 0.5;
   const merged = [];
   for (const seg of segments) {
@@ -225,7 +225,7 @@ export async function detectChords(signal, sampleRate, onProgress = () => {}) {
       merged.push({ ...seg, _s: [...seg._s] });
     }
   }
-  // 合併後可能產生相鄰同名段落，再合一次
+  // Merging can create neighbours with the same chord; merge again
   const out = [];
   for (const seg of merged) {
     const prev = out[out.length - 1];

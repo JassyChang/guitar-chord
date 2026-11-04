@@ -1,4 +1,4 @@
-// 解析各種 YouTube 網址格式，取得影片 ID。
+// Extract the video ID from the common YouTube URL formats.
 export function parseYouTubeId(input) {
   const s = (input || '').trim();
   if (/^[\w-]{11}$/.test(s)) return s;
@@ -22,7 +22,7 @@ export function parseYouTubeId(input) {
   return id && /^[\w-]{11}$/.test(id) ? id : null;
 }
 
-/** 解析 t= / start= 參數（秒）。 */
+/** Parse the t= / start= parameter (seconds). */
 export function parseStartSeconds(input) {
   try {
     const url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);

@@ -1,83 +1,103 @@
-# 🎸 吉他和弦與六線譜（guitar-chord）
+# 🎸 Guitar Song Sheet
 
-行動裝置優先的純靜態網頁工具：上傳音檔或用麥克風錄音，在瀏覽器中自動偵測**和弦時間軸**並轉成**標準調音六線譜**。沒有後端，音訊不會離開你的裝置。
+**Live:** https://jassychang.github.io/guitar-chord/
 
-**線上使用：** https://jassychang.github.io/guitar-chord/
+A mobile-first, fully static web app (GitHub Pages, no backend). Upload or record a song and get a **song sheet**: tempo, bar lines, chord names, 6-line guitar tab and lyrics, all lined up. Everything runs in your browser, so your audio never leaves the device.
 
-## 功能
+## Features
 
-1. **YouTube 參考播放**：貼上 YouTube 網址（支援 `watch?v=`、`youtu.be/`、`shorts/`、`t=` 起始時間）即可嵌入播放器邊聽邊對照。
-2. **兩種音訊輸入**
-   - 上傳音檔：mp3 / m4a / wav（以及瀏覽器能解碼的其他格式）
-   - 麥克風錄音：顯示錄音狀態與已錄秒數
-3. **和弦偵測**（Essentia.js）：HPCP 音級輪廓 → `ChordsDetection`，輸出「時間 + 和弦名稱」的時間軸，並為每個出現的和弦畫出吉他和弦圖。點時間軸可跳到該處播放，播放時會標示目前和弦。
-4. **音符轉譜**（@spotify/basic-pitch，TensorFlow.js）：把音訊轉成音符，再轉成 EADGBE 六線譜。指法以動態規劃挑選，偏好低把位、空弦、小跨度與較少換把。
-5. **進度條**顯示分析各階段；可**一鍵複製**純文字六線譜（或連同和弦時間軸一起複製）。
-6. 繁體中文介面、深色模式。
+- **Tempo panel**: BPM and beat positions from Essentia.js `RhythmExtractor2013`, with its confidence score. The time signature can be changed (2/4, 3/4, 4/4, 6/8), **Tap tempo** corrects the BPM by hand, and a **metronome** clicks at the current BPM with an accented beat 1.
+- **Chords**: Essentia.js HPCP → `ChordsDetection`, snapped to the beat grid so short flickers are removed. Chord diagrams for every chord used, plus a tappable chord timeline.
+- **Tab**: `@spotify/basic-pitch` (TensorFlow.js) turns the audio into notes, which are fingered for standard tuning (EADGBE). Low positions, open strings, small stretches and few hand shifts are preferred.
+- **Lyrics**: Whisper (`Xenova/whisper-tiny` or `whisper-base`) via Transformers.js, with word-level timestamps, running in a Web Worker.
+  - **Paste lyrics**: real lyrics are matched to Whisper's word timings. Without Whisper, or when too few words match, the lines are spread evenly across the song.
+  - Every lyric line can be **edited inline**; the sheet updates as you type.
+- **Song sheet**: the beats are split into measures with `|` bar lines, 4 bars per row by default. Each block shows:
+  ```
+  [0:09]
+       C              G
+  e|--0-------0---|---3-----|
+  B|--1-------1---|---0-----|
+  ...
+       country can do for you
+  ```
+  - The block that's playing is highlighted, and the page can follow playback.
+  - The **Chords + lyrics only** view hides the tab.
+  - ◀ ▶ shift the bar lines if beat 1 was guessed wrong. You can also change bars per row and the grid (1/8 or 1/16).
+  - **Copy as text** copies the current view as plain text.
+- **Progress for every step**: decode, tempo, chords, notes, lyrics and sheet each have their own status and progress bar, plus an overall bar.
+- **YouTube reference player** for listening along. Browsers can't read a YouTube video's audio, so upload or record to analyse.
+- Mobile-first dark UI, with a sticky bottom player that shows the current chord.
 
-## 使用方式
+## How to use
 
-1. 開啟網站：`https://<你的帳號>.github.io/guitar-chord/`
-2. （可選）在「1. YouTube 參考播放」貼上網址並按「載入」。
-   > 瀏覽器與 YouTube 規範不允許直接擷取影片音訊，所以影片只用於對照聆聽；要分析請上傳音檔或錄音（例如用另一支手機對著喇叭錄）。
-3. 在「2. 音訊來源」：
-   - **上傳音檔**：點虛線框選擇檔案；或
-   - **麥克風錄音**：按「● 開始錄音」，允許麥克風權限，錄完按「■ 停止錄音」。
-4. 在「3. 分析」選擇音符偵測靈敏度，按「開始分析」。第一次會下載模型（約 5 MB），之後會被瀏覽器快取。
-5. 在「4. 分析結果」查看和弦時間軸、和弦圖與六線譜，按「複製六線譜」或「複製全部（含和弦）」貼到任何地方。
+1. Open https://jassychang.github.io/guitar-chord/ (on a phone, if you like).
+2. *(Optional)* Paste a YouTube link to listen along.
+3. **Audio**: upload an mp3 / m4a / wav, or tap **Record** to use the microphone.
+4. **Lyrics** *(optional)*: choose a Whisper model and language, and/or paste the lyrics, one line per lyric line. Pasting gives much better results for sung vocals.
+5. Tap **Analyse** and watch each step's progress. The first run downloads Basic Pitch (~1 MB) and the Whisper model (~40 MB for tiny); both are cached afterwards.
+6. Read the song sheet:
+   - If the BPM is off, **Tap tempo** along with the song, or type the BPM.
+   - If the bar lines start in the wrong place, nudge them with ◀ ▶.
+   - Fix lyric lines in the **Lyrics** list.
+   - Use **Copy as text** to paste the sheet anywhere.
 
-### 小技巧
+### Tips
 
-- 單把吉他、伴奏乾淨的錄音效果最好；混音完整的歌曲音符會比較雜，可把靈敏度調「低」。
-- 六線譜每行前的 `[0:12]` 是該行開始時間；`-` 的數量大致代表音符間的時間間隔。
-- 和弦偵測只分辨大三與小三和弦（Essentia `ChordsDetection` 的限制）。
-- 為避免手機記憶體不足，單次分析上限為 10 分鐘音訊。
-- 麥克風需要 HTTPS（GitHub Pages 預設即為 HTTPS）。
+- A clean recording of one guitar works best. On full mixes the chords are usually useful, but the tab picks up vocals, bass and drums too; set sensitivity to **Low** to cut down the noise.
+- Whisper has a hard time with singing over loud music and may return nothing or repeated phrases (which are filtered out). Pasting the lyrics is the reliable route.
+- The tempo confidence follows Essentia's scale (0–5.32): above 3.5 is excellent, 1.5–3.5 is good, below 1.5 is low.
+- To keep phones from running out of memory, analysis is limited to 10 minutes of audio.
+- The microphone needs HTTPS, which GitHub Pages provides.
 
-## 部署到 GitHub Pages
+## Deploying to GitHub Pages
 
-本專案不需要建置，`main` 分支根目錄就是網站。
+There's no build step: the `main` branch root *is* the site.
+**Settings → Pages → Source: Deploy from a branch → `main` / `(root)` → Save.** Every push to `main` redeploys it.
 
-1. 到 GitHub repo 的 **Settings → Pages**。
-2. **Source** 選 **Deploy from a branch**，Branch 選 **`main`**、資料夾 **`/ (root)`**，按 Save。
-3. 約一分鐘後即可在 `https://<你的帳號>.github.io/guitar-chord/` 使用。
+## Local development
 
-## 本機開發
-
-ES modules 需要透過 HTTP 伺服器開啟（不能直接雙擊 `index.html`）：
+ES modules and workers need an HTTP server (opening `index.html` directly won't work):
 
 ```sh
 python3 -m http.server 8000
-# 開啟 http://localhost:8000
+# open http://localhost:8000
 ```
 
-手機測試麥克風時需使用 HTTPS 或 `localhost`。
-
-### 專案結構
-
 ```
-index.html              頁面
-css/style.css           深色、行動優先樣式
-js/app.js               介面與流程控制
-js/audio.js             解碼、重新取樣（22050 Hz 單聲道）、錄音
-js/chords.js            Essentia.js 和弦偵測、和弦指法與 SVG 和弦圖
-js/transcribe.js        Basic Pitch 音符轉譜
-js/tab.js               音符 → 六線譜（指法最佳化與文字排版）
-js/youtube.js           YouTube 網址解析
-vendor/                 已打包的第三方函式庫與模型（直接提交，免建置）
-tools/build-vendor.sh   重新產生 vendor/
+index.html               page
+css/style.css            dark, mobile-first styles
+js/app.js                UI and analysis flow
+js/audio.js              decoding, resampling, recording
+js/rhythm.js             tempo / beats (Essentia RhythmExtractor2013)
+js/chords.js             chord detection + chord diagrams (Essentia)
+js/essentia-worker.js    runs tempo + chords off the main thread
+js/essentia-client.js    worker client with main-thread fallback
+js/transcribe.js         Basic Pitch note transcription
+js/tab.js                notes -> playable fingerings
+js/lyrics.js             Whisper worker client
+js/whisper-worker.js     Transformers.js Whisper, word timestamps
+js/lyrics-align.js       pasted-lyrics alignment, line building, loop filter
+js/sheet.js              beat grid, measures, aligned song-sheet layout
+js/metronome.js          Web Audio metronome
+js/youtube.js            YouTube URL parsing
+vendor/                  bundled Essentia.js, Basic Pitch + model (committed, no build)
+tools/build-vendor.sh    regenerates vendor/
 ```
 
-### 更新第三方函式庫
+Transformers.js (`@huggingface/transformers@4.3.1`) loads from jsDelivr and the Whisper models load from the Hugging Face Hub, so lyrics need a network connection the first time.
+
+### Updating the vendored libraries
 
 ```sh
 npm install
 npm run build:vendor
 ```
 
-## 授權與致謝
+## Licences and credits
 
-- [Essentia.js](https://github.com/MTG/essentia.js)（AGPL-3.0，授權條款見 `vendor/essentia/LICENSE`）
-- [Basic Pitch](https://github.com/spotify/basic-pitch-ts)（Apache-2.0）與 [TensorFlow.js](https://github.com/tensorflow/tfjs)（Apache-2.0）
+- [Essentia.js](https://github.com/MTG/essentia.js): AGPL-3.0, see `vendor/essentia/LICENSE`. Because of this, the source code has to stay public when the app is deployed (this repo is public).
+- [Basic Pitch](https://github.com/spotify/basic-pitch-ts) and [TensorFlow.js](https://github.com/tensorflow/tfjs): Apache-2.0.
+- [Transformers.js](https://github.com/huggingface/transformers.js): Apache-2.0. [Whisper](https://github.com/openai/whisper) models: MIT.
 
-由於使用了 AGPL-3.0 授權的 Essentia.js，公開部署時請一併公開原始碼（本 repo 即是）。自動轉譜結果僅供參考。
+Automatic transcription is a starting point, not gospel.

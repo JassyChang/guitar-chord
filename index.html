@@ -1,112 +1,204 @@
 <!doctype html>
-<html lang="zh-Hant-TW">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#0f1115" />
-  <meta name="description" content="上傳或錄製吉他音訊，自動偵測和弦並轉成六線譜。全部在瀏覽器中執行。" />
-  <title>吉他和弦與六線譜</title>
+  <meta name="description" content="Upload or record a song and get tempo, chords, lyrics and guitar tab as a song sheet. Runs entirely in your browser." />
+  <title>Guitar Song Sheet</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%B8%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
   <header class="app-header">
-    <h1>🎸 吉他和弦與六線譜</h1>
-    <p class="sub">音訊只在你的裝置上分析，不會上傳到任何伺服器。</p>
+    <h1>🎸 Guitar Song Sheet</h1>
+    <p class="sub">Tempo, chords, lyrics and tab from any recording. Your audio never leaves this device.</p>
   </header>
 
   <main>
-    <!-- 1. YouTube 參考 -->
+    <!-- Tempo panel -->
+    <section class="card tempo-panel" aria-labelledby="tempo-title">
+      <h2 id="tempo-title" class="sr-only">Tempo</h2>
+      <div class="tempo-top">
+        <div class="bpm-box">
+          <label for="bpm-input" class="tiny">BPM</label>
+          <input id="bpm-input" class="bpm-input" type="number" inputmode="decimal" min="30" max="260" step="1" placeholder="—" />
+          <span id="bpm-source" class="tiny muted">not detected yet</span>
+        </div>
+        <div class="tempo-meta">
+          <label class="tiny" for="timesig">Time signature</label>
+          <select id="timesig">
+            <option value="2">2/4</option>
+            <option value="3">3/4</option>
+            <option value="4" selected>4/4</option>
+            <option value="6">6/8</option>
+          </select>
+          <div class="tiny">Confidence</div>
+          <div id="tempo-confidence" class="conf">—</div>
+        </div>
+      </div>
+      <div class="tempo-actions">
+        <button id="tap-btn" class="btn" type="button">Tap tempo</button>
+        <button id="metro-btn" class="btn" type="button" aria-pressed="false">Metronome: off</button>
+        <div id="beat-dots" class="beat-dots" aria-hidden="true"></div>
+      </div>
+      <button id="bpm-reset" class="link-btn" type="button" hidden>Reset to detected BPM</button>
+    </section>
+
+    <!-- YouTube -->
     <section class="card" aria-labelledby="yt-title">
-      <h2 id="yt-title"><span class="step">1</span>YouTube 參考播放</h2>
+      <h2 id="yt-title"><span class="step">1</span>YouTube reference</h2>
       <form id="yt-form" class="row">
-        <input id="yt-url" type="url" inputmode="url" placeholder="貼上 YouTube 網址" autocomplete="off" />
-        <button type="submit" class="btn">載入</button>
+        <input id="yt-url" type="url" inputmode="url" placeholder="Paste a YouTube link" autocomplete="off" />
+        <button type="submit" class="btn">Load</button>
       </form>
       <p id="yt-error" class="error" hidden></p>
       <div id="yt-player" class="video-wrap" hidden></div>
-      <p class="hint">YouTube 影片僅供對照聆聽；受限於瀏覽器與 YouTube 規範，無法直接分析影片音訊，請上傳音檔或用麥克風錄下來。</p>
+      <p class="hint">For listening along only: browsers can't read a YouTube video's audio. Upload a file or record with the microphone to analyse.</p>
     </section>
 
-    <!-- 2. 音訊來源 -->
+    <!-- Audio source -->
     <section class="card" aria-labelledby="src-title">
-      <h2 id="src-title"><span class="step">2</span>音訊來源</h2>
+      <h2 id="src-title"><span class="step">2</span>Audio</h2>
       <div class="tabs" role="tablist">
-        <button role="tab" id="tab-file" aria-selected="true" aria-controls="panel-file" class="tab">上傳音檔</button>
-        <button role="tab" id="tab-mic" aria-selected="false" aria-controls="panel-mic" class="tab">麥克風錄音</button>
+        <button role="tab" id="tab-file" aria-selected="true" aria-controls="panel-file" class="tab">Upload file</button>
+        <button role="tab" id="tab-mic" aria-selected="false" aria-controls="panel-mic" class="tab">Record</button>
       </div>
-
       <div id="panel-file" role="tabpanel" aria-labelledby="tab-file">
         <label class="file-drop">
           <input id="file-input" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" />
-          <span class="file-drop-text">點此選擇音檔<br /><small>支援 mp3 / m4a / wav</small></span>
+          <span class="file-drop-text">Tap to choose an audio file<br /><small>mp3 / m4a / wav</small></span>
         </label>
       </div>
-
       <div id="panel-mic" role="tabpanel" aria-labelledby="tab-mic" hidden>
         <div class="rec-box">
-          <button id="rec-btn" class="btn btn-rec" type="button">● 開始錄音</button>
-          <div id="rec-status" class="rec-status" aria-live="polite">尚未錄音</div>
+          <button id="rec-btn" class="btn btn-rec" type="button">● Start recording</button>
+          <div id="rec-status" class="rec-status" aria-live="polite">Not recording</div>
         </div>
-        <p id="mic-unsupported" class="error" hidden>此瀏覽器不支援麥克風錄音（需 HTTPS 與 MediaRecorder）。</p>
+        <p id="mic-unsupported" class="error" hidden>This browser can't record audio (needs HTTPS and MediaRecorder).</p>
       </div>
-
-      <div id="source-info" class="source-info" hidden>
-        <div class="source-name" id="source-name"></div>
-        <audio id="source-audio" controls preload="metadata"></audio>
-      </div>
+      <p id="source-name" class="source-name" hidden></p>
     </section>
 
-    <!-- 3. 分析 -->
-    <section class="card" aria-labelledby="an-title">
-      <h2 id="an-title"><span class="step">3</span>分析</h2>
+    <!-- Lyrics -->
+    <section class="card" aria-labelledby="lyr-title">
+      <h2 id="lyr-title"><span class="step">3</span>Lyrics <span class="muted small">(optional)</span></h2>
+      <div class="grid2">
+        <label class="field">
+          <span>Transcribe with</span>
+          <select id="whisper-model">
+            <option value="off">Off</option>
+            <option value="tiny" selected>Whisper tiny (~40 MB)</option>
+            <option value="base">Whisper base (~80 MB)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Language</span>
+          <select id="whisper-lang">
+            <option value="">Auto-detect</option>
+            <option value="english">English</option>
+            <option value="chinese">Chinese</option>
+            <option value="japanese">Japanese</option>
+            <option value="korean">Korean</option>
+            <option value="spanish">Spanish</option>
+            <option value="french">French</option>
+            <option value="german">German</option>
+            <option value="portuguese">Portuguese</option>
+          </select>
+        </label>
+      </div>
       <label class="field">
-        <span>音符偵測靈敏度</span>
+        <span>Paste lyrics (one line per lyric line)</span>
+        <textarea id="lyrics-paste" rows="5" placeholder="Singing over music is hard to transcribe. Paste the real lyrics here and they'll be lined up with the song."></textarea>
+      </label>
+      <p class="hint">Pasted lyrics are matched to Whisper's word timings when Whisper is on; otherwise lines are spread evenly across the song. The model downloads once and is cached.</p>
+      <button id="lyrics-apply" class="btn btn-block" type="button" disabled>Apply pasted lyrics to the sheet</button>
+      <p id="lyrics-msg" class="ok" aria-live="polite"></p>
+    </section>
+
+    <!-- Analyse -->
+    <section class="card" aria-labelledby="an-title">
+      <h2 id="an-title"><span class="step">4</span>Analyse</h2>
+      <label class="field">
+        <span>Note detection sensitivity</span>
         <select id="sensitivity">
-          <option value="low">低（音符較少、較乾淨）</option>
-          <option value="medium" selected>中</option>
-          <option value="high">高（抓更多細節）</option>
+          <option value="low">Low (fewer, cleaner notes)</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High (more detail)</option>
         </select>
       </label>
-      <button id="analyze-btn" class="btn btn-primary btn-block" type="button" disabled>開始分析</button>
+      <button id="analyze-btn" class="btn btn-primary btn-block" type="button" disabled>Analyse</button>
       <div id="progress-wrap" class="progress-wrap" hidden>
-        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress">
+        <div class="progress" role="progressbar" aria-label="Overall progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress">
           <div class="progress-bar" id="progress-bar"></div>
         </div>
-        <div class="progress-label"><span id="progress-stage">準備中…</span><span id="progress-pct">0%</span></div>
+        <div class="progress-label"><span id="progress-stage">Starting…</span><span id="progress-pct">0%</span></div>
+        <ol id="steps" class="steps"></ol>
       </div>
       <p id="analyze-error" class="error" hidden></p>
     </section>
 
-    <!-- 4. 結果 -->
+    <!-- Results -->
     <section id="results" class="card" aria-labelledby="res-title" hidden>
-      <h2 id="res-title"><span class="step">4</span>分析結果</h2>
-
-      <h3>和弦時間軸</h3>
-      <p class="hint">點擊時間可跳到該處播放。</p>
-      <ol id="chord-timeline" class="timeline"></ol>
-
-      <h3>和弦圖</h3>
-      <div id="chord-diagrams" class="diagrams"></div>
-
-      <div class="tab-head">
-        <h3>六線譜（標準調音 EADGBE）</h3>
+      <h2 id="res-title"><span class="step">5</span>Song sheet</h2>
+      <div class="toolbar">
+        <div class="seg" role="group" aria-label="View">
+          <button id="view-full" class="seg-btn" aria-pressed="true" type="button">Tab + chords + lyrics</button>
+          <button id="view-simple" class="seg-btn" aria-pressed="false" type="button">Chords + lyrics only</button>
+        </div>
+        <div class="toolbar-row">
+          <label class="mini-field">Bars/row
+            <select id="per-row">
+              <option>2</option><option selected>4</option><option>6</option><option>8</option>
+            </select>
+          </label>
+          <label class="mini-field">Grid
+            <select id="grid-res">
+              <option value="2" selected>1/8</option>
+              <option value="4">1/16</option>
+            </select>
+          </label>
+          <div class="mini-field">Bar lines
+            <span class="shift">
+              <button id="shift-left" class="icon-btn" type="button" aria-label="Move bar lines earlier">◀</button>
+              <button id="shift-right" class="icon-btn" type="button" aria-label="Move bar lines later">▶</button>
+            </span>
+          </div>
+          <label class="check"><input id="follow" type="checkbox" checked /> Follow</label>
+        </div>
       </div>
-      <p id="tab-meta" class="hint"></p>
-      <pre id="tab-output" class="tab-output"></pre>
+      <p id="sheet-meta" class="hint"></p>
+      <div id="sheet" class="sheet"></div>
       <div class="row wrap">
-        <button id="copy-tab" class="btn" type="button">複製六線譜</button>
-        <button id="copy-all" class="btn" type="button">複製全部（含和弦）</button>
+        <button id="copy-sheet" class="btn" type="button">Copy as text</button>
       </div>
       <p id="copy-msg" class="ok" aria-live="polite"></p>
+
+      <h3>Lyrics</h3>
+      <p class="hint">Edit any line; the sheet updates as you type. Tap a time to jump there.</p>
+      <ol id="lyrics-editor" class="lyrics-editor"></ol>
+
+      <h3>Chords used</h3>
+      <div id="chord-diagrams" class="diagrams"></div>
+
+      <details class="timeline-details">
+        <summary>Chord timeline</summary>
+        <ol id="chord-timeline" class="timeline"></ol>
+      </details>
     </section>
   </main>
 
   <footer class="app-footer">
-    使用 <a href="https://mtg.github.io/essentia.js/" target="_blank" rel="noopener">Essentia.js</a> 與
-    <a href="https://github.com/spotify/basic-pitch-ts" target="_blank" rel="noopener">Basic Pitch</a>。自動轉譜僅供參考。
+    Built with <a href="https://mtg.github.io/essentia.js/" target="_blank" rel="noopener">Essentia.js</a>,
+    <a href="https://github.com/spotify/basic-pitch-ts" target="_blank" rel="noopener">Basic Pitch</a> and
+    <a href="https://huggingface.co/docs/transformers.js" target="_blank" rel="noopener">Transformers.js</a>. Automatic transcription is a starting point, not gospel.
   </footer>
+
+  <div id="player-bar" class="player-bar" hidden>
+    <div class="now"><span class="tiny muted">Chord</span><span id="now-chord">—</span></div>
+    <audio id="source-audio" controls preload="metadata"></audio>
+  </div>
 
   <script type="module" src="js/app.js"></script>
 </body>
